@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kosmik Jang - Bonuslar bilan</title>
+    <title>Kosmik Jang - Bonuslar va Fon bilan</title>
+    <!-- Adsgram SDK ulanishi -->
+    <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -38,12 +40,41 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
+        /* Asosiy Menyu */
+        #mainMenu {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white; padding: 40px 30px;
+            text-align: center; border: 3px solid #3498db;
+            border-radius: 10px;
+            z-index: 5;
+            display: none;
+            width: 80%;
+            max-width: 400px;
+            box-shadow: 0 0 25px rgba(52, 152, 219, 0.6);
+        }
+        #mainMenu h1 {
+            margin: 0 0 15px 0;
+            color: #3498db;
+            font-size: 32px;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
+        }
+        #mainMenu p {
+            font-size: 16px;
+            color: #ccc;
+            margin-bottom: 30px;
+        }
+
         #ui {
             position: absolute;
             top: 10px; left: 10px;
             color: white; font-size: 18px;
             pointer-events: none;
             text-shadow: 2px 2px 4px #000;
+            display: none; /* O'yin boshlanmaguncha yashiriladi */
         }
         #gameOver {
             position: absolute;
@@ -53,12 +84,18 @@
             color: white; padding: 30px;
             text-align: center; border: 3px solid #ff4444;
             display: none; z-index: 5;
+            border-radius: 10px;
+            box-shadow: 0 0 25px rgba(255, 68, 68, 0.6);
         }
         button {
             padding: 12px 25px; font-size: 18px;
             cursor: pointer; background: #28a745;
             color: white; border: none; border-radius: 5px;
             margin-top: 15px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #218838;
         }
     </style>
 </head>
@@ -68,6 +105,13 @@
         <div class="loader"></div>
         <h2 id="loadText">Resurslar yuklanmoqda...</h2>
         <p>6 sekund kuting...</p>
+    </div>
+
+    <!-- Asosiy Menyu -->
+    <div id="mainMenu">
+        <h1>KOSMIK JANG</h1>
+        <p>Koinotni dushmanlardan himoya qiling! Bonuslarni yig'ing va omon qoling.</p>
+        <button onclick="startGame()">O'yinni boshlash</button>
     </div>
 
     <div id="ui">
@@ -90,7 +134,9 @@
     const scoreEl = document.getElementById('score');
     const livesEl = document.getElementById('lives');
     const weaponEl = document.getElementById('weaponLvl');
+    const uiContainer = document.getElementById('ui');
     const gameOverScreen = document.getElementById('gameOver');
+    const mainMenuScreen = document.getElementById('mainMenu');
     const loadingScreen = document.getElementById('loadingScreen');
 
     canvas.width = window.innerWidth;
@@ -103,16 +149,33 @@
     const enemyImg = new Image();
     enemyImg.src = 'https://i.ibb.co/V0kJsKgh/49fd5029-d5a1-4320-b2e7-d5b09fef6e8a-removalai-preview.png';
 
+    // Orqa fon rasmi
+    const bgImg = new Image();
+    bgImg.src = 'https://i.ibb.co/rfGfLN0s/05b1d2ae469a22acdb4c874474a45123.jpg';
+
     let player, enemies, bullets, enemyBullets, bonuses, score, lives, weaponLevel, gameActive = false;
+    let bgY = 0; // Fon siljish koordinatasi
+    const bgSpeed = 1; // Siljish tezligi
+
+    // Timers va Intervals
+    let enemySpawnTimeout, bonusSpawnTimeout, enemyShootInterval, playerShootInterval;
+
+    // Adsgram ulash va sozlash
+    let AdController;
+    try {
+        if (window.Adsgram) {
+            AdController = window.Adsgram.init({ blockId: 'int-34643' }); // Reklama bloki ID-si
+        }
+    } catch (e) {
+        console.error("Adsgram ishga tushirishda xatolik:", e);
+    }
 
     // Yuklanish taymeri (6 sekund)
     setTimeout(() => {
         loadingScreen.style.display = 'none';
+        mainMenuScreen.style.display = 'block'; // Asosiy menyuni ko'rsatish
         init();
-        gameActive = true;
-        spawnEnemy();
-        spawnBonus();
-        draw();
+        draw(); // Fonnig siljish animatsiyasi doimo ishlab turishi uchun draw-ni boshlaymiz
     }, 6000);
 
     function init() {
@@ -124,6 +187,7 @@
         score = 0;
         lives = 3;
         weaponLevel = 1;
+        bgY = 0;
         updateUI();
         gameOverScreen.style.display = 'none';
     }
@@ -143,27 +207,60 @@
         if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
     });
 
-    // O'q otish mexanikasi (1, 2 yoki 3 ta o'q)
-    setInterval(() => {
-        if (gameActive) {
-            if (weaponLevel === 1) {
-                bullets.push({ x: player.x + player.w/2 - 2, y: player.y, w: 4, h: 15, speed: 8 });
-            } else if (weaponLevel === 2) {
-                bullets.push({ x: player.x + 10, y: player.y, w: 4, h: 15, speed: 8 });
-                bullets.push({ x: player.x + player.w - 14, y: player.y, w: 4, h: 15, speed: 8 });
-            } else if (weaponLevel >= 3) {
-                bullets.push({ x: player.x + player.w/2 - 2, y: player.y, w: 4, h: 15, speed: 8 });
-                bullets.push({ x: player.x - 5, y: player.y + 20, w: 4, h: 15, speed: 8 });
-                bullets.push({ x: player.x + player.w + 1, y: player.y + 20, w: 4, h: 15, speed: 8 });
+    // O'yinni Asosiy Menyudan boshlash
+    function startGame() {
+        mainMenuScreen.style.display = 'none';
+        uiContainer.style.display = 'block';
+        init();
+        gameActive = true;
+        startSpawning();
+    }
+
+    // Timers va interfallarni faollashtirish
+    function startSpawning() {
+        stopSpawning(); // Eskilarini tozalash
+
+        spawnEnemy();
+        spawnBonus();
+
+        // Dushmanlar o'q otishi
+        enemyShootInterval = setInterval(() => {
+            if (gameActive && enemies.length > 0) {
+                let randomEnemy = enemies[Math.floor(Math.random() * enemies.length)];
+                enemyBullets.push({ x: randomEnemy.x + 22, y: randomEnemy.y + 40, w: 6, h: 12, speed: 5 });
             }
-        }
-    }, 350);
+        }, 1500);
+
+        // O'yinchining avtomatik o'q otish mexanikasi (1, 2 yoki 3 ta o'q)
+        playerShootInterval = setInterval(() => {
+            if (gameActive) {
+                if (weaponLevel === 1) {
+                    bullets.push({ x: player.x + player.w/2 - 2, y: player.y, w: 4, h: 15, speed: 8 });
+                } else if (weaponLevel === 2) {
+                    bullets.push({ x: player.x + 10, y: player.y, w: 4, h: 15, speed: 8 });
+                    bullets.push({ x: player.x + player.w - 14, y: player.y, w: 4, h: 15, speed: 8 });
+                } else if (weaponLevel >= 3) {
+                    bullets.push({ x: player.x + player.w/2 - 2, y: player.y, w: 4, h: 15, speed: 8 });
+                    bullets.push({ x: player.x - 5, y: player.y + 20, w: 4, h: 15, speed: 8 });
+                    bullets.push({ x: player.x + player.w + 1, y: player.y + 20, w: 4, h: 15, speed: 8 });
+                }
+            }
+        }, 350);
+    }
+
+    // Timers va interfallarni to'xtatish
+    function stopSpawning() {
+        clearTimeout(enemySpawnTimeout);
+        clearTimeout(bonusSpawnTimeout);
+        clearInterval(enemyShootInterval);
+        clearInterval(playerShootInterval);
+    }
 
     // Dushmanlarni yaratish
     function spawnEnemy() {
         if (!gameActive) return;
         enemies.push({ x: Math.random() * (canvas.width - 50), y: -60, w: 50, h: 50, speed: 2 + Math.random() * 2 });
-        setTimeout(spawnEnemy, 1200);
+        enemySpawnTimeout = setTimeout(spawnEnemy, 1200);
     }
 
     // Bonuslarni yaratish (Yurak yoki O'q)
@@ -171,16 +268,8 @@
         if (!gameActive) return;
         let type = Math.random() > 0.5 ? 'heart' : 'weapon';
         bonuses.push({ x: Math.random() * (canvas.width - 30), y: -40, w: 30, h: 30, speed: 3, type: type });
-        setTimeout(spawnBonus, 8000); // Har 8 sekundda bonus tushadi
+        bonusSpawnTimeout = setTimeout(spawnBonus, 8000); // Har 8 sekundda bonus tushadi
     }
-
-    // Dushmanlar oq otishi
-    setInterval(() => {
-        if (gameActive && enemies.length > 0) {
-            let randomEnemy = enemies[Math.floor(Math.random() * enemies.length)];
-            enemyBullets.push({ x: randomEnemy.x + 22, y: randomEnemy.y + 40, w: 6, h: 12, speed: 5 });
-        }
-    }, 1500);
 
     function update() {
         if (!gameActive) return;
@@ -235,14 +324,34 @@
         });
     }
 
+    function showAd() {
+        if (AdController) {
+            AdController.show()
+                .then((result) => {
+                    // Reklama muvaffaqiyatli yakunlandi yoki yopildi
+                    console.log("Reklama ko'rsatildi yoki foydalanuvchi tomonidan yopildi:", result);
+                })
+                .catch((err) => {
+                    // Reklama yuklanishida muammo (masalan, AdBlocker)
+                    console.error("Reklamani yuklashda xatolik yuz berdi:", err);
+                });
+        } else {
+            console.log("Adsgram yuklanmagan yoki bloklangan.");
+        }
+    }
+
     function takeDamage() {
         lives--;
         weaponLevel = 1; // Zarba yeganda o'q 1 taga tushadi
         updateUI();
         if (lives <= 0) {
             gameActive = false;
+            stopSpawning();
             document.getElementById('finalScore').innerText = score;
             gameOverScreen.style.display = 'block';
+
+            // O'yin tugaganda Adsgram reklamasini ko'rsatish
+            showAd();
         }
     }
 
@@ -253,30 +362,45 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // O'yinchi va Dushmanlarni chizish (Rasmlar yuklangach)
-        ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
-        enemies.forEach(en => ctx.drawImage(enemyImg, en.x, en.y, en.w, en.h));
+        // Orqa fonni cheksiz siljitib chizish (Asosiy menyuda ham siljiydi)
+        bgY += bgSpeed;
+        if (bgY >= canvas.height) {
+            bgY = 0;
+        }
+        ctx.drawImage(bgImg, 0, bgY - canvas.height, canvas.width, canvas.height);
+        ctx.drawImage(bgImg, 0, bgY, canvas.width, canvas.height);
 
-        // Bonuslar chizish
-        bonuses.forEach(bn => {
-            ctx.font = "25px Arial";
-            ctx.fillText(bn.type === 'heart' ? "❤️" : "⚡", bn.x, bn.y);
-        });
+        // O'yinchi rasmini chizish
+        if (player) {
+            ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+        }
 
-        // O'qlar
-        ctx.fillStyle = "#ffff00";
-        bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
-        ctx.fillStyle = "#ff0000";
-        enemyBullets.forEach(eb => ctx.fillRect(eb.x, eb.y, eb.w, eb.h));
+        if (gameActive) {
+            // Dushmanlarni chizish
+            enemies.forEach(en => ctx.drawImage(enemyImg, en.x, en.y, en.w, en.h));
 
-        update();
-        if (gameActive) requestAnimationFrame(draw);
+            // Bonuslar chizish
+            bonuses.forEach(bn => {
+                ctx.font = "25px Arial";
+                ctx.fillText(bn.type === 'heart' ? "❤️" : "⚡", bn.x, bn.y);
+            });
+
+            // O'qlar
+            ctx.fillStyle = "#ffff00";
+            bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+            ctx.fillStyle = "#ff0000";
+            enemyBullets.forEach(eb => ctx.fillRect(eb.x, eb.y, eb.w, eb.h));
+
+            update();
+        }
+
+        requestAnimationFrame(draw);
     }
 
     function restartGame() {
         init();
         gameActive = true;
-        draw();
+        startSpawning();
     }
 </script>
 </body>

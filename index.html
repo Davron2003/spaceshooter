@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kosmik Jang - Bonuslar bilan</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
+        }
+        canvas { display: block; }
+        
+        /* Yuklanish ekrani */
+        #loadingScreen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 10;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 2s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #ui {
+            position: absolute;
+            top: 10px; left: 10px;
+            color: white; font-size: 18px;
+            pointer-events: none;
+            text-shadow: 2px 2px 4px #000;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white; padding: 30px;
+            text-align: center; border: 3px solid #ff4444;
+            display: none; z-index: 5;
+        }
+        button {
+            padding: 12px 25px; font-size: 18px;
+            cursor: pointer; background: #28a745;
+            color: white; border: none; border-radius: 5px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loadingScreen">
+        <div class="loader"></div>
+        <h2 id="loadText">Resurslar yuklanmoqda...</h2>
+        <p>6 sekund kuting...</p>
+    </div>
+
+    <div id="ui">
+        Jon: <span id="lives">3</span>/5 | 
+        O'q: <span id="weaponLvl">1</span> | 
+        Ball: <span id="score">0</span>
+    </div>
+
+    <div id="gameOver">
+        <h1>O'YIN TUGADI!</h1>
+        <p>Sizning balingiz: <span id="finalScore">0</span></p>
+        <button onclick="restartGame()">Qayta boshla</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const weaponEl = document.getElementById('weaponLvl');
+    const gameOverScreen = document.getElementById('gameOver');
+    const loadingScreen = document.getElementById('loadingScreen');
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // Rasmlar
+    const playerImg = new Image();
+    playerImg.src = 'https://i.ibb.co/PZjL7HGT/487071c6-e338-4191-a591-4236d6dde6a2-removalai-preview.png';
+
+    const enemyImg = new Image();
+    enemyImg.src = 'https://i.ibb.co/V0kJsKgh/49fd5029-d5a1-4320-b2e7-d5b09fef6e8a-removalai-preview.png';
+
+    let player, enemies, bullets, enemyBullets, bonuses, score, lives, weaponLevel, gameActive = false;
+
+    // Yuklanish taymeri (6 sekund)
+    setTimeout(() => {
+        loadingScreen.style.display = 'none';
+        init();
+        gameActive = true;
+        spawnEnemy();
+        spawnBonus();
+        draw();
+    }, 6000);
+
+    function init() {
+        player = { x: canvas.width / 2 - 30, y: canvas.height - 120, w: 60, h: 60 };
+        enemies = [];
+        bullets = [];
+        enemyBullets = [];
+        bonuses = [];
+        score = 0;
+        lives = 3;
+        weaponLevel = 1;
+        updateUI();
+        gameOverScreen.style.display = 'none';
+    }
+
+    function updateUI() {
+        scoreEl.innerText = score;
+        livesEl.innerText = lives;
+        weaponEl.innerText = weaponLevel;
+    }
+
+    // Mobil boshqaruv
+    canvas.addEventListener('touchmove', (e) => {
+        if (!gameActive) return;
+        let touch = e.touches[0];
+        player.x = touch.clientX - player.w / 2;
+        if (player.x < 0) player.x = 0;
+        if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
+    });
+
+    // O'q otish mexanikasi (1, 2 yoki 3 ta o'q)
+    setInterval(() => {
+        if (gameActive) {
+            if (weaponLevel === 1) {
+                bullets.push({ x: player.x + player.w/2 - 2, y: player.y, w: 4, h: 15, speed: 8 });
+            } else if (weaponLevel === 2) {
+                bullets.push({ x: player.x + 10, y: player.y, w: 4, h: 15, speed: 8 });
+                bullets.push({ x: player.x + player.w - 14, y: player.y, w: 4, h: 15, speed: 8 });
+            } else if (weaponLevel >= 3) {
+                bullets.push({ x: player.x + player.w/2 - 2, y: player.y, w: 4, h: 15, speed: 8 });
+                bullets.push({ x: player.x - 5, y: player.y + 20, w: 4, h: 15, speed: 8 });
+                bullets.push({ x: player.x + player.w + 1, y: player.y + 20, w: 4, h: 15, speed: 8 });
+            }
+        }
+    }, 350);
+
+    // Dushmanlarni yaratish
+    function spawnEnemy() {
+        if (!gameActive) return;
+        enemies.push({ x: Math.random() * (canvas.width - 50), y: -60, w: 50, h: 50, speed: 2 + Math.random() * 2 });
+        setTimeout(spawnEnemy, 1200);
+    }
+
+    // Bonuslarni yaratish (Yurak yoki O'q)
+    function spawnBonus() {
+        if (!gameActive) return;
+        let type = Math.random() > 0.5 ? 'heart' : 'weapon';
+        bonuses.push({ x: Math.random() * (canvas.width - 30), y: -40, w: 30, h: 30, speed: 3, type: type });
+        setTimeout(spawnBonus, 8000); // Har 8 sekundda bonus tushadi
+    }
+
+    // Dushmanlar oq otishi
+    setInterval(() => {
+        if (gameActive && enemies.length > 0) {
+            let randomEnemy = enemies[Math.floor(Math.random() * enemies.length)];
+            enemyBullets.push({ x: randomEnemy.x + 22, y: randomEnemy.y + 40, w: 6, h: 12, speed: 5 });
+        }
+    }, 1500);
+
+    function update() {
+        if (!gameActive) return;
+
+        // O'yinchining o'qlari
+        bullets.forEach((b, i) => {
+            b.y -= b.speed;
+            if (b.y < 0) bullets.splice(i, 1);
+        });
+
+        // Dushman oqlari
+        enemyBullets.forEach((eb, i) => {
+            eb.y += eb.speed;
+            if (eb.y > canvas.height) enemyBullets.splice(i, 1);
+            if (rectIntersect(eb, player)) {
+                enemyBullets.splice(i, 1);
+                takeDamage();
+            }
+        });
+
+        // Bonuslarni harakati va yig'ish
+        bonuses.forEach((bn, i) => {
+            bn.y += bn.speed;
+            if (bn.y > canvas.height) bonuses.splice(i, 1);
+            if (rectIntersect(bn, player)) {
+                if (bn.type === 'heart') {
+                    if (lives < 5) lives++;
+                } else {
+                    weaponLevel++;
+                }
+                bonuses.splice(i, 1);
+                updateUI();
+            }
+        });
+
+        // Dushmanlar
+        enemies.forEach((en, i) => {
+            en.y += en.speed;
+            if (en.y > canvas.height) enemies.splice(i, 1);
+            if (rectIntersect(en, player)) {
+                enemies.splice(i, 1);
+                takeDamage();
+            }
+            bullets.forEach((b, bi) => {
+                if (rectIntersect(b, en)) {
+                    enemies.splice(i, 1);
+                    bullets.splice(bi, 1);
+                    score += 10;
+                    updateUI();
+                }
+            });
+        });
+    }
+
+    function takeDamage() {
+        lives--;
+        weaponLevel = 1; // Zarba yeganda o'q 1 taga tushadi
+        updateUI();
+        if (lives <= 0) {
+            gameActive = false;
+            document.getElementById('finalScore').innerText = score;
+            gameOverScreen.style.display = 'block';
+        }
+    }
+
+    function rectIntersect(r1, r2) {
+        return !(r2.x > r1.x + r1.w || r2.x + r2.w < r1.x || r2.y > r1.y + r1.h || r2.y + r2.h < r1.y);
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // O'yinchi va Dushmanlarni chizish (Rasmlar yuklangach)
+        ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+        enemies.forEach(en => ctx.drawImage(enemyImg, en.x, en.y, en.w, en.h));
+
+        // Bonuslar chizish
+        bonuses.forEach(bn => {
+            ctx.font = "25px Arial";
+            ctx.fillText(bn.type === 'heart' ? "❤️" : "⚡", bn.x, bn.y);
+        });
+
+        // O'qlar
+        ctx.fillStyle = "#ffff00";
+        bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+        ctx.fillStyle = "#ff0000";
+        enemyBullets.forEach(eb => ctx.fillRect(eb.x, eb.y, eb.w, eb.h));
+
+        update();
+        if (gameActive) requestAnimationFrame(draw);
+    }
+
+    function restartGame() {
+        init();
+        gameActive = true;
+        draw();
+    }
+</script>
+</body>
+</html>
